@@ -1,0 +1,147 @@
+
+##Initializing the libraries and max memory
+```{r}
+library(dplyr)
+library(knitr)
+library(caret)
+library(randomForest)
+library(partykit)
+library(corrgram)
+install.packages('e1071', dependencies=TRUE)
+```
+
+##Input Data
+getting the input data in train.csv file and taking a look at what it has
+```{r}
+train.data <- read.csv("train.csv")
+glimpse(train.data)
+```
+
+found that contract id is unique so we can not have the training on it , removing it for now
+```{r}
+train.ID <- train.data[,-1]
+glimpse(train.ID)
+```
+
+## Training data 
+doing the training on 2 last months because it most probably the same pattern
+```{r}
+train.ID2 <- train.ID[,-c(1,2,3,4,5,6)]
+train.ID2[complete.cases(train.ID2),]
+str(train.ID2)
+train.ID2$TARGET = factor(train.ID2$TARGET)
+```
+once on random forest
+```{r}
+modFit <- train(TARGET~ .,data=train.ID2,method="rf")
+```
+and another for k nearest neighbors
+```{r}
+modFitknn <- train(TARGET~ .,data=train.ID2,method="knn")
+```
+
+##Testing
+reading the testing data
+```{r}
+test.data <- read.csv("test.csv")
+```
+doing the testing
+```{r}
+pred <- predict(modFitknn,test.data)
+```
+reading the sample submission file to be replace the target column
+```{r}
+sample <- read.csv("sample_submission.csv")
+```
+replacing the target column 
+```{r}
+sample$PREDICTED_TARGET <- pred
+```
+submission at this point got 0.58 score 
+lets try another one
+## Trying another way with some feature engineering
+testing if the test data has same ids as sample of submission first
+```{r}
+samekeys <- test.data$CONTRACT_KEY==sample$CONTRACT_KEY
+```
+all trues then we can proceed
+
+```{r}
+test.id <- test.data
+```
+remving the ids column
+```{r}
+test.id <- test.id[,-1]
+```
+
+now this will be as follows , we will calculate the slope of the line of the 5 months ,
+if we get a number greater than one then the numbers were going upwards and this means that ,
+there is a high probability that the 6th will be more than average , and vice versa
+```{r}
+train.ID3 <- test.id
+train.ID3$slope <- 0
+train.ID3$target <- 0
+```
+renaming the columns to be easier to access
+```{r}
+colnames(train.ID3) <- c("sc1","us1","sc2","us2","sc3","us3","sc4","us4","sc5","us5","target")
+```
+
+and here we calculate the slope as summation of the (usage/number of sessions) and then dividing the result by 5 (average of the 5 months)
+```{r}
+train.ID3$slope <- ((train.ID3$us1/train.ID3$sc1) +(train.ID3$us2/train.ID3$sc2) +(train.ID3$us3/train.ID3$sc3) +(train.ID3$us4/train.ID3$sc4) +(train.ID3$us5/train.ID3$sc5))/5
+```
+found a random weird column >> deleting it
+```{r}
+train.ID3 <- train.ID3[,-12]
+```
+and then filling the target based on the slope
+```{r}
+train.ID3$target <- ifelse(train.ID3$slope>1, 1, 0)
+```
+now factoring it again , i have no idea why , but when i tried normally it didnt work and i had to factor it
+```{r}
+train.ID3$target = factor(train.ID3$target)
+```
+filling the sample with the output to submit
+```{r}
+sample$PREDICTED_TARGET <- train.ID3$target
+```
+now this submission was a little better than the previous one , it got a score of 0.63
+
+## Outliers
+now taking it one step further , we can detect some outliers and find a way to deal with them, or at least i hope i can
+```{r}
+boxplot(train.ID3$sc1)
+boxplot(train.ID3$sc2)
+boxplot(train.ID3$sc3)
+boxplot(train.ID3$sc4)
+boxplot(train.ID3$sc5)
+
+boxplot(train.ID3$us1)
+boxplot(train.ID3$us2)
+boxplot(train.ID3$us3)
+boxplot(train.ID3$us4)
+boxplot(train.ID3$us5)
+```
+the boxplots showed some outliers , not it is time to detect them specifically 
+```{r}
+boxplot.stats(train.ID3$sc1)$out
+boxplot.stats(train.ID3$sc2)$out
+boxplot.stats(train.ID3$sc3)$out
+boxplot.stats(train.ID3$sc4)$out
+boxplot.stats(train.ID3$sc5)$out
+
+boxplot.stats(train.ID3$us1)$out
+boxplot.stats(train.ID3$us2)$out
+boxplot.stats(train.ID3$us3)$out
+boxplot.stats(train.ID3$us4)$out
+boxplot.stats(train.ID3$us5)$out
+```
+
+many outliers detected 
+
+writing the results to a file in order to submit it
+```{r}
+write.csv(sample, file = "maybe_we_can_pass_the_course.csv")
+```
